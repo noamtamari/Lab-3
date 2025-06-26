@@ -1,5 +1,5 @@
 ; ===============================================================================
-;  Encoder Program - Task 1
+;  Encoder Program - Task 1 (Using system_call wrapper)
 ;  This program encodes input text by shifting uppercase letters down by one.
 ;  It supports stdin/stdout by default with optional file input/output redirection.
 ; ===============================================================================
@@ -33,10 +33,15 @@ _start:
   push ecx              ; Push argc as first parameter to main()
   call encoder_main     ; Call main function for encoding
   
-  ; Exit program with main's return value
-  mov  ebx, eax         ; ebx = return value from encoder_main
-  mov  eax, 1           ; System call number for exit
-  int  0x80             ; Invoke kernel: exit(main_return_value)
+  ; Exit program with main's return value - using system_call
+  push 0                ; Fifth parameter (not used)
+  push 0                ; Fourth parameter (not used)
+  push 0                ; Third parameter (not used)
+  push eax              ; Second parameter: exit code
+  push 1                ; First parameter: SYS_EXIT (1)
+  call system_call      ; Call system_call wrapper
+  add  esp, 20          ; Clean up stack (5 params × 4 bytes)
+  ; Note: We won't reach here as exit terminates the program
 
 ; -------------------------------------------------------------------------------
 ;  system_call: C-compatible wrapper for making Linux system calls
@@ -53,6 +58,8 @@ system_call:
   mov  ebx, [ebp+12]    ; First argument (arg1)
   mov  ecx, [ebp+16]    ; Second argument (arg2)
   mov  edx, [ebp+20]    ; Third argument (arg3)
+  mov  esi, [ebp+24]    ; Fourth argument (arg4) if needed
+  mov  edi, [ebp+28]    ; Fifth argument (arg5) if needed
   int  0x80             ; Invoke kernel to perform system call
   
   mov  [ebp-4], eax     ; Save return value from system call
@@ -65,7 +72,7 @@ system_call:
 ; -------------------------------------------------------------------------------
 ;  encoder_main: implements Task 1.A (debug print), 1.B (encode), 1.C (I/O redirection)
 ; -------------------------------------------------------------------------------
-encoder_main:           ; Renamed from "main" to be more descriptive
+encoder_main:           
   push ebp              ; Set up stack frame
   mov  ebp, esp         ; Set new base pointer
 
@@ -77,7 +84,7 @@ encoder_main:           ; Renamed from "main" to be more descriptive
   ; ----------------------------
   xor  edi, edi         ; edi = 0 (initialize argument index counter)
 
-parse_arguments:        ; Better name than parse_flags
+parse_arguments:        
   cmp  edi, ecx         ; Compare index with argc
   jge  done_parsing     ; If we've processed all args, continue
   mov  eax, [esi + edi*4] ; eax = argv[edi] (pointer to current argument)
@@ -86,40 +93,52 @@ parse_arguments:        ; Better name than parse_flags
 
   mov  bx, [eax]        ; Load first two bytes of argument string into bx
   cmp  bx, 0x692D       ; Compare with "-i" (0x69=i, 0x2D=-)
-  je   setup_input_file ; Better name than handle_i
+  je   setup_input_file 
   cmp  bx, 0x6F2D       ; Compare with "-o" (0x6F=o, 0x2D=-)
-  je   setup_output_file ; Better name than handle_o
-  jmp  next_argument    ; Process next argument (renamed)
+  je   setup_output_file 
+  jmp  next_argument    ; Process next argument
 
-setup_input_file:       ; Renamed from handle_i
+setup_input_file:       
   add  eax, 2           ; Skip over "-i" part of argument
-  mov  ebx, eax         ; ebx = filename pointer (after "-i")
   push ecx              ; Save argc counter
-  mov  ecx, 0           ; O_RDONLY flag for open()
-  mov  eax, 5           ; sys_open system call number
-  int  0x80             ; Call kernel: fd = open(filename, O_RDONLY)
+  
+  ; Call sys_open using system_call wrapper
+  push 0                ; Fifth parameter (not used)
+  push 0                ; Fourth parameter (not used)
+  push 0                ; Third parameter - mode (not needed for read-only)
+  push 0                ; Second parameter - O_RDONLY flag
+  push eax              ; First parameter - filename pointer
+  push 5                ; System call number (sys_open)
+  call system_call      ; Call system_call wrapper
+  add  esp, 24          ; Clean up stack (6 params × 4 bytes)
+  
   pop  ecx              ; Restore argc counter
   cmp  eax, 0           ; Check if open succeeded (fd >= 0)
   jl   exit_program     ; If error (negative fd), exit program
   mov  [Infile], eax    ; Store new input file descriptor
-  jmp  next_argument    ; Process next argument (renamed)
+  jmp  next_argument    ; Process next argument 
 
-setup_output_file:      ; Renamed from handle_o
+setup_output_file:      
   add  eax, 2           ; Skip over "-o" part of argument
-  mov  ebx, eax         ; ebx = filename pointer (after "-o")
+  mov  ebx, eax         ; Save filename pointer
   push ecx              ; Save argc counter
-  mov  ecx, 577         ; O_WRONLY|O_CREAT|O_TRUNC flags
-                        ; 577 = 0x0241 = 0001 + 0100 + 0100 0000
-  mov  edx, 0x1A4       ; File mode 0644 (rw-r--r--)
-  mov  eax, 5           ; sys_open system call number
-  int  0x80             ; Call kernel: fd = open(filename, flags, mode)
+  
+  ; Call sys_open using system_call wrapper
+  push 0                ; Fifth parameter (not used)
+  push 0x1A4            ; Fourth parameter - mode (0644 permissions)
+  push 577              ; Third parameter - flags: O_WRONLY|O_CREAT|O_TRUNC
+  push ebx              ; Second parameter - filename pointer
+  push 5                ; First parameter - system call number (sys_open)
+  call system_call      ; Call system_call wrapper
+  add  esp, 20          ; Clean up stack (5 params × 4 bytes)
+  
   pop  ecx              ; Restore argc counter
   cmp  eax, 0           ; Check if open succeeded (fd >= 0)
   jl   exit_program     ; If error (negative fd), exit program
   mov  [Outfile], eax   ; Store new output file descriptor
-  jmp  next_argument    ; Process next argument (renamed)
+  jmp  next_argument    ; Process next argument 
 
-next_argument:          ; Renamed from next_arg
+next_argument:          
   inc  edi              ; Increment argument index
   jmp  parse_arguments  ; Continue parsing flags
 
@@ -131,9 +150,9 @@ done_parsing:
   ; ----------------------------
   xor  edi, edi         ; edi = 0 (reset argument index)
 
-print_arguments:        ; Renamed from print_args
+print_arguments:        
   cmp  edi, ecx         ; Compare with argc
-  jge  start_encoding   ; If all args printed, start encoding (renamed)
+  jge  start_encoding   ; If all args printed, start encoding 
   mov  eax, [esi + edi*4] ; eax = argv[edi]
   test eax, eax         ; Check if argument pointer is NULL
   je   start_encoding   ; If NULL, we're done printing
@@ -144,70 +163,99 @@ print_arguments:        ; Renamed from print_args
   add  esp, 4           ; Clean up stack after call
   mov  edx, eax         ; edx = length of string
 
-  mov  ecx, [esi + edi*4] ; ecx = pointer to argument string
-  mov  ebx, 2           ; stderr file descriptor (2)
-  mov  eax, 4           ; sys_write system call number
-  int  0x80             ; Call kernel: write(stderr, argv[edi], strlen(argv[edi]))
+  ; Call sys_write using system_call wrapper
+  push 0                ; Fifth parameter (not used)
+  push 0                ; Fourth parameter (not used)
+  push edx              ; Third parameter - string length
+  push dword [esi+edi*4] ; Second parameter - string pointer
+  push 2                ; First parameter - stderr file descriptor
+  push 4                ; System call number (sys_write)
+  call system_call      ; Call system_call wrapper
+  add  esp, 24          ; Clean up stack
 
-  ; Write newline character to stderr
-  mov  eax, 4           ; sys_write system call number
-  mov  ebx, 2           ; stderr file descriptor (2)
-  mov  ecx, newline     ; Pointer to newline character
-  mov  edx, 1           ; Length = 1 byte
-  int  0x80             ; Call kernel: write(stderr, "\n", 1)
+  ; Write newline character to stderr using system_call
+  push 0                ; Fifth parameter (not used)
+  push 0                ; Fourth parameter (not used)
+  push 1                ; Third parameter - length (1 byte)
+  push newline          ; Second parameter - newline character
+  push 2                ; First parameter - stderr file descriptor
+  push 4                ; System call number (sys_write)
+  call system_call      ; Call system_call wrapper
+  add  esp, 24          ; Clean up stack
 
   inc  edi              ; Increment argument index
   jmp  print_arguments  ; Continue printing arguments
 
-start_encoding:         ; Renamed from start_encode
+start_encoding:         
   ; ----------------------------
   ; Encode input and write to output (Tasks 1.B and 1.C)
   ; ----------------------------
   mov  edi, buffer      ; edi = pointer to our character buffer
 
-character_process_loop: ; Renamed from read_loop
-  mov  eax, 3           ; sys_read system call number
-  mov  ebx, [Infile]    ; File descriptor to read from
-  mov  ecx, edi         ; Buffer to read into
-  mov  edx, 1           ; Number of bytes to read
-  int  0x80             ; Call kernel: bytes_read = read(Infile, buffer, 1)
+character_process_loop: 
+  ; Read character using system_call
+  push 0                ; Fifth parameter (not used)
+  push 0                ; Fourth parameter (not used)
+  push 1                ; Third parameter - read 1 byte
+  push edi              ; Second parameter - buffer pointer
+  push dword [Infile]   ; First parameter - input file descriptor
+  push 3                ; System call number (sys_read)
+  call system_call      ; Call system_call wrapper
+  add  esp, 24          ; Clean up stack
+  
   cmp  eax, 0           ; Check if we're at end of file (bytes_read == 0)
-  je   handle_eof       ; If at EOF, jump to end-of-file handling (renamed)
+  je   handle_eof       ; If at EOF, jump to end-of-file handling 
 
   ; Perform encoding: Uppercase letters A-Z get shifted to previous letter
   mov  al,  [edi]       ; AL = current character read
   cmp  al,  'A'         ; Is it below 'A'?
-  jl   output_character ; If so, don't modify it (renamed)
+  jl   output_character ; If so, don't modify it 
   cmp  al,  'Z'         ; Is it above 'Z'? 
-  jg   output_character ; If so, don't modify it (renamed)
+  jg   output_character ; If so, don't modify it 
 
   ; Character is in uppercase range, perform shift
   cmp  al,  'A'         ; Special case: Is it 'A'?
-  jne  decrement_letter ; If not 'A', just subtract 1 (renamed)
+  jne  decrement_letter ; If not 'A', just subtract 1 
   mov  al,  'Z'         ; Wrap 'A' around to 'Z'
-  jmp  output_character ; Write the encoded character (renamed)
+  jmp  output_character ; Write the encoded character 
 
-decrement_letter:       ; Renamed from shift_down
+decrement_letter:       
   dec  al               ; Decrement character value: B→A, C→B, etc.
 
-output_character:       ; Renamed from write_char
+output_character:       
   mov  [edi], al        ; Store encoded character back to buffer
-  mov  eax, 4           ; sys_write system call number
-  mov  ebx, [Outfile]   ; File descriptor to write to
-  mov  ecx, edi         ; Pointer to buffer containing character
-  mov  edx, 1           ; Number of bytes to write
-  int  0x80             ; Call kernel: write(Outfile, buffer, 1)
+  
+  ; Write character using system_call
+  push 0                ; Fifth parameter (not used)
+  push 0                ; Fourth parameter (not used)
+  push 1                ; Third parameter - write 1 byte
+  push edi              ; Second parameter - buffer pointer
+  push dword [Outfile]  ; First parameter - output file descriptor
+  push 4                ; System call number (sys_write)
+  call system_call      ; Call system_call wrapper
+  add  esp, 24          ; Clean up stack
+  
   jmp  character_process_loop ; Continue reading next character
 
-handle_eof:             ; Renamed from eof
-  ; Write final newline to output file
-  mov  eax, 4           ; sys_write system call number
-  mov  ebx, [Outfile]   ; Output file descriptor
-  mov  ecx, newline     ; Pointer to newline character
-  mov  edx, 1           ; Length = 1 byte
-  int  0x80             ; Call kernel: write(Outfile, "\n", 1)
+handle_eof:             
+  ; Write final newline to output file using system_call
+  push 0                ; Fifth parameter (not used)
+  push 0                ; Fourth parameter (not used)
+  push 1                ; Third parameter - length (1 byte)
+  push newline          ; Second parameter - newline character
+  push dword [Outfile]  ; First parameter - output file descriptor
+  push 4                ; System call number (sys_write)
+  call system_call      ; Call system_call wrapper
+  add  esp, 24          ; Clean up stack
 
 exit_program:
-  mov  eax, 1           ; sys_exit system call number
-  xor  ebx, ebx         ; Exit status code 0 (success)
-  int  0x80             ; Call kernel: exit(0)
+  ; Exit program with success code using system_call
+  push 0                ; Fifth parameter (not used)
+  push 0                ; Fourth parameter (not used)
+  push 0                ; Third parameter (not used)
+  push 0                ; Second parameter - exit code 0 (success)
+  push 1                ; First parameter - SYS_EXIT (1)
+  call system_call      ; Call system_call wrapper
+  add  esp, 20          ; Clean up stack (5 params × 4 bytes)
+  ; Note: We won't reach here as exit terminates the program
+  ret                   ; Just in case - return to caller
