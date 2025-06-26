@@ -1,8 +1,9 @@
-#include "util.h"          // for strlen, strncmp, etc.
+#include "util.h"          // Provided to you (for strlen, strncmp, etc.)
 #include <fcntl.h>         // For open(), O_RDONLY, O_DIRECTORY, etc.
 #include <sys/syscall.h>   // For SYS_getdents
 #include <linux/types.h>   // For __u32, __u64, etc.
 #include "syscall.h"
+
 extern int system_call();
 
 // Raw syscall numbers
@@ -11,34 +12,27 @@ extern int system_call();
 #define SYS_WRITE   4
 #define SYS_OPEN    5
 #define SYS_CLOSE   6
-#define SYS_GETDENTS 141  // Changed from SYS_GETDENTS64 220
-
-// File access modes
-#define O_RDONLY        00000000
-#define O_WRONLY        00000001
-#define O_RDWR          00000002
-#define O_CREAT         00000100
-#define O_EXCL          00000200
-#define O_TRUNC         00001000
-#define O_APPEND        00002000
-#define O_DIRECTORY     00200000
+#define SYS_GETDENTS 141
 
 #define BUF_SIZE 8192 // <= 10 KB as permitted
 
-// Structure for directory entries in 32-bit Linux
-struct linux_dirent {
-    unsigned int  d_ino;    // 32-bit inode number
-    unsigned int  d_off;    // 32-bit offset
-    unsigned short d_reclen; // Size of this dirent
-    unsigned char  d_type;  // File type (might not be supported in all kernels)
-    char          d_name[256]; // Fixed size array for compatibility
-} __attribute__((packed));
+/* syscall.h – declare once, #include where you need it */
+#ifndef SIMPLE_SYSCALL_H
+#define SIMPLE_SYSCALL_H
 
-// External assembly routines -defined in start.s) 
+/* Linux’s on‑disk dirent layout (without <dirent.h> / libc) */
+struct linux_dirent {
+    long           d_ino;
+    off_t          d_off;
+    unsigned short d_reclen;
+    char           d_name[];
+};
+
+// External assembly routines (defined in start.s) 
 extern void infection(void);
 extern void infector(char *filename);
 
-// syscall wrapper - get the syscall number and up to 5 arguments which are passed in registers
+// syscall wrapper
 static inline int sys_call(int num,
                            int arg1, int arg2, int arg3,
                            int arg4, int arg5)
@@ -51,20 +45,16 @@ static inline int sys_call(int num,
                       : "memory");
     return ret;        /* negative => -errno, exactly like raw syscalls */
 }
-// Activate sys_call SYS_WRITE for printing a string to stdout
-// 1: File descriptor for stdout
-// str : Pointer to the string to print
-// strlen(str) : number of bytes to write
+
+#endif
+
 void print(const char* str) {
     sys_call(SYS_WRITE, 1, (int)str, strlen(str), 0, 0);
 }
 
-// In case of an error, print an error message and exit with code 0x66
 void print_error_exit() {
-    print("Error occurred\n");
-    sys_call(SYS_EXIT, 0x66, 0, 0, 0, 0);
+    sys_call(SYS_EXIT, 0, 0,0,0,0);
 }
-
 
 
 int main(int argc, char **argv) {
