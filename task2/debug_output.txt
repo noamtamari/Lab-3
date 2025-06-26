@@ -1,0 +1,4 @@
+Using prefix: infected
+Hello, Infected File
+Processing entries...
+Error in getdents
